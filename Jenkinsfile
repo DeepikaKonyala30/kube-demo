@@ -1,68 +1,48 @@
-// ============== JENKINSFILE – LOCKED TO UBUNTU 24.04 DIGEST ==============
 pipeline {
     agent any
-
     environment {
-        // THIS IS THE ONLY IMAGE THAT WILL EVER RUN
         BASE_IMAGE = 'ubuntu@sha256:66460d557b25769b102175144d538d88219c077c678a49af4afca6fbfc1b5252'
-        MY_APP     = 'deepikakonyala30/kube-demo'
-        TAG        = "latest"
+        APP_IMAGE  = 'deepzz72206/kube-demo'   // ← your DockerHub user
+        TAG        = "${env.BUILD_NUMBER}"
     }
-
     stages {
-        // 1. Verify we really pulled the pinned image
-        stage('Pull Immutable Ubuntu') {
+        stage('Wait for Docker') {
+            steps { bat '''
+                @echo off
+                :loop
+                docker info >nul 2>&1
+                if %errorlevel%==0 goto done
+                echo Docker not ready, sleep 5s...
+                timeout /t 5 >nul
+                goto loop
+                :done
+                echo Docker is READY!
+            ''' }
+        }
+        stage('Pull Locked Ubuntu') {
+            steps {
+                script { docker.image(BASE_IMAGE).pull() }
+                bat "docker inspect --format={{.Id}} %BASE_IMAGE% | findstr 66460d55"
+            }
+        }
+        stage('Build Node App') {
             steps {
                 script {
-                    docker.image(BASE_IMAGE).pull()
-                    sh "docker inspect --format='{{.Id}}' ${BASE_IMAGE} | grep 66460d55"
+                    def img = docker.build("${APP_IMAGE}:${TAG}", '.')
+                    img.inside { bat 'node -v && npm -v' }
                 }
             }
         }
-
-        // 2. Build YOUR app inside the pinned Ubuntu
-        stage('Build Docker Image') {
+        stage('Push') {
             steps {
                 script {
-                    docker.withServer('/var/run/docker.sock') {
-                        appImage = docker.build("${MY_APP}:${TAG}", "-f Dockerfile .")
+                    docker.withRegistry('', 'dockerhub-cred-id') {
+                        docker.image("${APP_IMAGE}:${TAG}").push()
+                        docker.image("${APP_IMAGE}:${TAG}").push('latest')
                     }
                 }
             }
         }
-
-        // 3. Push with both tag + latest
-        stage('Push to Docker Hub') {
-            steps {
-                script {
-                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-cred-id') {
-                        appImage.push()
-                        appImage.push('latest')
-                    }
-                }
-            }
-        }
-
-        // 4. One-click K8s deploy (optional – delete if you don’t need)
-        stage('Deploy to Kubernetes') {
-            when { branch 'main' }
-            steps {
-                script {
-                    kubernetesDeploy(
-                        kubeconfigId: 'kubeconfig-id',
-                        configs: 'k8s/deployment.yaml',
-                        enableConfigSubstitution: true
-                    )
-                }
-            }
-        }
     }
-
-    post {
-        always {
-            cleanWs()
-            sh "docker rmi ${MY_APP}:${TAG} ${BASE_IMAGE} || true"
-        }
-    }
+    post { always { cleanWs() } }
 }
-// =====================================================================
