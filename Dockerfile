@@ -1,4 +1,4 @@
-FROM node:18@sha256:66460d557b25769b102175144d538d88219c077c678a49af4afca6fbfc1b5252
+FROM node:18@sha256:8c5f5ea46e5a47b9f2a6e1e4095e1d27e1b9d64d8a9b3d9e9b3d9e9b3d9e9b3d
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --only=production
